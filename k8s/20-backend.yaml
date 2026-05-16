@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: himanshugohil18/skillpulse-backend:e0f35d1f860d605e17684715acb4bc10f8eb5680
+          image: himanshugohil18/skillpulse-backend:7d5f5170017c90b4210d6e2c6494c4abab3193e9
           imagePullPolicy: Always
           ports:
             - name: http
