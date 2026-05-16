@@ -3,16 +3,11 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependency files first
 COPY go.mod go.sum ./
-
-# Download dependencies
 RUN go mod download
 
-# Copy project files
 COPY . .
 
-# Build optimized binary
 RUN CGO_ENABLED=0 GOOS=linux \
 go build -ldflags="-w -s" \
 -o skillpulse .
@@ -20,15 +15,12 @@ go build -ldflags="-w -s" \
 # Stage 2 - Runtime
 FROM alpine:3.23
 
-# Install certificates
-RUN apk add --no-cache ca-certificates=20250911-r0
-
 WORKDIR /app
 
-# Copy built binary
+RUN apk --no-cache add ca-certificates
+
 COPY --from=builder /app/skillpulse .
 
-# Security: non-root user
 USER nobody
 
 EXPOSE 8080
