@@ -17,7 +17,8 @@ FROM alpine:3.23
 
 WORKDIR /app
 
-RUN apk --no-cache add ca-certificates
+RUN apk add --no-cache ca-certificates=20250911-r0 || \
+    apk add --no-cache ca-certificates
 
 COPY --from=builder /app/skillpulse .
 
