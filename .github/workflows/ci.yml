@@ -158,20 +158,24 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./backend
+          file: ./backend/Dockerfile
           push: true
           tags: himanshugohil18/skillpulse-backend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: false
 
       - name: Build Frontend Image
         if: needs.detect-changes.outputs.frontend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
+          file: ./frontend/Dockerfile
           push: true
           tags: himanshugohil18/skillpulse-frontend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: false
 
       - name: Trivy Image Scan
         if: needs.detect-changes.outputs.backend == 'true'
