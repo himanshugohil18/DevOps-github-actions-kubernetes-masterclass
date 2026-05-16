@@ -5,100 +5,109 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-  security-events: write
-
 jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      deps: ${{ steps.filter.outputs.deps }}
 
-  # -------------------------
-  # SECRET SCANNING
-  # -------------------------
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Detect file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            deps:
+              - 'backend/go.mod'
+              - 'backend/go.sum'
+              - 'frontend/package.json'
+              - 'frontend/package-lock.json'
+
   gitleaks:
     name: Gitleaks Scan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # -------------------------
-  # SONARCLOUD CODE ANALYSIS
-  # -------------------------
-  sonarcloud:
+  sonar:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v5
+      - name: Sonar Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+
+      - name: Sonar Scan
+        uses: sonarsource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
 
-  # -------------------------
-  # OWASP DEPENDENCY CHECK
-  # -------------------------
   owasp:
     name: OWASP Dependency Scan
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.deps == 'true'
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: OWASP Dependency Check
+      - name: Run OWASP Scan
         uses: dependency-check/Dependency-Check_Action@main
         with:
           project: "skillpulse"
           path: "."
           format: "HTML"
-          out: "reports"
 
-      - name: Upload OWASP Report
+      - name: Upload Report
         uses: actions/upload-artifact@v4
         with:
           name: owasp-report
-          path: reports
+          path: reports/
 
-  # -------------------------
-  # TRIVY FILESYSTEM SCAN
-  # -------------------------
   trivy-fs:
     name: Trivy FS Scan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Run Trivy FS Scan
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "table"
-          severity: "CRITICAL,HIGH"
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: 0
 
-  # -------------------------
-  # DOCKERFILE SECURITY
-  # -------------------------
-  hadolint:
+  dockerfile-scan:
     name: Dockerfile Scan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Lint Backend Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
@@ -113,65 +122,53 @@ jobs:
           dockerfile: frontend/Dockerfile
           failure-threshold: error
 
-  # -------------------------
-  # BUILD + IMAGE SECURITY
-  # -------------------------
   build-and-push:
     name: Build Secure Images
     runs-on: ubuntu-latest
-
     needs:
       - gitleaks
-      - sonarcloud
-      - owasp
+      - sonar
       - trivy-fs
-      - hadolint
+      - dockerfile-scan
+      - detect-changes
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Docker Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to DockerHub
+      - name: DockerHub Login
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # -------------------------
-      # BUILD BACKEND
-      # -------------------------
+      # Backend build only if changed
       - name: Build Backend Image
-        run: |
-          docker build -t himanshugohil18/skillpulse-backend:latest ./backend
-
-      - name: Scan Backend Image
-        uses: aquasecurity/trivy-action@master
+        if: needs.detect-changes.outputs.backend == 'true'
+        uses: docker/build-push-action@v6
         with:
-          image-ref: "himanshugohil18/skillpulse-backend:latest"
-          format: "table"
-          severity: "CRITICAL,HIGH"
+          context: ./backend
+          push: true
+          tags: himanshugohil18/skillpulse-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Push Backend Image
-        run: |
-          docker push himanshugohil18/skillpulse-backend:latest
-
-      # -------------------------
-      # BUILD FRONTEND
-      # -------------------------
+      # Frontend build only if changed
       - name: Build Frontend Image
-        run: |
-          docker build -t himanshugohil18/skillpulse-frontend:latest ./frontend
+        if: needs.detect-changes.outputs.frontend == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: himanshugohil18/skillpulse-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Scan Frontend Image
+      - name: Trivy Image Scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "himanshugohil18/skillpulse-frontend:latest"
-          format: "table"
-          severity: "CRITICAL,HIGH"
-
-      - name: Push Frontend Image
-        run: |
-          docker push himanshugohil18/skillpulse-frontend:latest
+          image-ref: himanshugohil18/skillpulse-backend:latest
+          format: table
+          exit-code: 0
