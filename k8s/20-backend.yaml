@@ -32,8 +32,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: trainwithshubham/skillpulse-backend:latest
-          imagePullPolicy: IfNotPresent
+          image: himanshugohil18/skillpulse-backend:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
