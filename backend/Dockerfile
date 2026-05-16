@@ -21,7 +21,7 @@ go build -ldflags="-w -s" \
 FROM alpine:3.23
 
 # Install certificates
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates=20250911-r0
 
 WORKDIR /app
 
